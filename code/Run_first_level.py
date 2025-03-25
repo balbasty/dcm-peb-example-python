@@ -8,18 +8,20 @@ from spm import (
 
 num = np.asarray
 
-
 # Save the field of a (scalar) struct in a .mat file
-def save(f, x): return Runtime.call("save", f, "-struct", x)
-
+_save = Runtime.call("eval", "@(f,x) save(f, '-struct', 'x')")
+def save(*a): return _save(*a, nargout=0)
 
 # Load a .mat into a (scalar) struct
 def load(*a): return Runtime.call("load", *a)
 
+# Change directory in MATLAB
+def cd(*a): return Runtime.call("cd", *a)
+
 
 # ======================================================================
 
-this_dir = os.path.abspath(os.path.dirname(__file__))
+this_dir = start_dir = os.path.abspath(os.path.dirname(__file__))
 
 ## Settings
 
@@ -62,7 +64,7 @@ c[:, TASK] = 1
 # D-matrix (disabled)
 d = np.zeros([nregions, nregions, 0])
 
-start_dir = os.getcwd()
+
 for subject in range(nsubjects):
 
     name = f'sub-{subject+1:02d}'
@@ -82,10 +84,12 @@ for subject in range(nsubjects):
         XY = load(f[r])
         xY[r] = XY.xY
 
-    print(type(xY), xY.shape)
+        # Fix -- otherwise spm_dcm_specify crashes
+        Ic = int(XY.xY.Ic.item())
+        SPM.xCon[Ic].c = num([])
 
     # Move to output directory
-    os.chdir(glm_dir)
+    cd(glm_dir)
 
     # Select whether to include each condition from the design matrix
     # (Task, Pictures, Words)
@@ -109,13 +113,14 @@ for subject in range(nsubjects):
     DCM = spm_dcm_specify(SPM, xY, s)
 
     # Return to script directory
-    os.chdir(start_dir)
+    cd(start_dir)
 
 
 ## Collate into a GCM file and estimate
 
 # Find all DCM files
 dcms = spm_select('FPListRec', os.path.join(this_dir, '..', 'GLM'), 'DCM_full.mat')
+dcms = dcms[:1]
 
 # Prepare output directory
 out_dir = os.path.join(this_dir, '..', 'analyses')
@@ -132,7 +137,6 @@ if os.path.exists(os.path.join(out_dir, 'GCM_full.mat')):
 else:
     tf = True
 
-
 # Collate & estimate
 if tf:
     # Character array -> cell array
@@ -148,6 +152,7 @@ if tf:
     # Save estimated GCM
     save(os.path.join(out_dir, 'GCM_full.mat'), {'GCM': GCM})
 
+
 ## Specify 28 alternative models structures
 #  These will be templates for the group analysis
 
@@ -155,16 +160,19 @@ if tf:
 # -------------------------------------------------------------------------
 # Both
 b_task_fam = Cell()
-b_task_fam[0][:, :, 1] = np.ones(4)  # Objects
-b_task_fam[0][:, :, 2] = np.ones(4)  # Words
+b_task_fam[0] = np.zeros([4, 4, 2])
+b_task_fam[0][:, :, 0] = 1   # Objects
+b_task_fam[0][:, :, 1] = 1   # Words
 
 # Words
-b_task_fam[1][:, :, 1] = np.zeros(4)  # Objects
-b_task_fam[1][:, :, 2] = np.ones(4)   # Words
+b_task_fam[1] = np.zeros([4, 4, 2])
+b_task_fam[1][:, :, 0] = 0   # Objects
+b_task_fam[1][:, :, 1] = 1   # Words
 
 # Objects
-b_task_fam[2][:, :, 1] = np.ones(4)   # Objects
-b_task_fam[2][:, :, 2] = np.zeros(4)  # Words
+b_task_fam[2] = np.zeros([4, 4, 2])
+b_task_fam[2][:, :, 0] = 1   # Objects
+b_task_fam[2][:, :, 1] = 0   # Words
 
 task_fam_names = ['Both', 'Words', 'Objects']
 
@@ -185,7 +193,7 @@ b_dv_fam[2] = num([[1, 0, 0, 0],
                    [0, 0, 1, 0],
                    [0, 0, 0, 0]])
 
-b_dv_fam_names = ['Both' 'Dorsal' 'Ventral']
+b_dv_fam_names = ['Both', 'Dorsal', 'Ventral']
 
 # Define B-matrix for each family (factor: left-right)
 # -------------------------------------------------------------------------
@@ -213,7 +221,7 @@ b_lr_fam_names = ['Both', 'Left', 'Right']
 # Load and unpack an example DCM
 GCM_full = load(os.path.join(out_dir, 'GCM_full.mat'))
 GCM_full = spm_dcm_load(GCM_full.GCM)
-DCM_template = GCM_full[0, 0]
+DCM_template = GCM_full[0]
 a = DCM_template.a
 c = DCM_template.c
 d = DCM_template.d
@@ -226,16 +234,16 @@ m = 0
 task_family = Array()
 b_dv_family = Array()
 b_lr_family = Array()
-for t in range(b_task_fam):
-    for dv in range(b_dv_fam):
-        for lr in range(b_lr_fam):
+for t in range(len(b_task_fam)):
+    for dv in range(len(b_dv_fam)):
+        for lr in range(len(b_lr_fam)):
 
             # Prepare B-matrix
             b = np.zeros([4, 4, 3])
-            b[:, :, 1:2] = b_dv_fam[dv] & b_lr_fam[lr] & b_task_fam[t]
+            b[:, :, 1:] = (b_dv_fam[dv][..., None] + b_lr_fam[lr][..., None] + b_task_fam[t]) > 0
 
             # Prepare model name
-            name = print(
+            name = (
                 'Task: %s, Dorsoventral: %s, Hemi: %s' %
                 (task_fam_names[t], b_dv_fam_names[dv], b_lr_fam_names[lr])
             )
@@ -267,6 +275,7 @@ c = num([[1, 0, 0],
 name = 'Task: None'
 
 DCM = Struct()
+DCM.b = np.zeros([4, 4, 3])
 DCM.b[:, :, 1] = b
 DCM.b[:, :, 2] = b
 DCM.c          = c
