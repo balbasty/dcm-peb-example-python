@@ -13,7 +13,8 @@ from spm import (
 
 
 # Save the field of a (scalar) struct in a .mat file
-def save(f, x): return Runtime.call("save", f, "-struct", x)
+_save = Runtime.call("eval", "@(f,x) save(f, '-struct', 'x')")
+def save(*a): return _save(*a, nargout=0)
 
 
 # Load a .mat into a (scalar) struct
@@ -105,16 +106,8 @@ save('../analyses/BMA_fam_b_lr.mat', {'BMA_fam_b_lr': BMA_fam_b_lr, 'fam_b_lr': 
 [qE, qC, Q] = spm_dcm_loo(GCM, M, ['B(4,4,3)'], nargout=3)
 save('../analyses/LOO_rdF_words.mat', {'qE': qE, 'qC': qC, 'Q': Q})
 
-# Correlate rdF
-B = [gcm.Ep.B(3, 3, 2) for gcm in GCM]
-LI = X[:, 1]
-Runtime.call('figure')
-Runtime.call('scatter', LI, B)
-Runtime.call('lsline')
-[R, P] = Runtime.call('corrcoeff', LI, B, nargout=2)
-
 # Build PEB (A)
-[PEB_A, RCM_A] = spm_dcm_peb(GCM[:, 0], M, ['A'], nargout=2)
+[PEB_A, RCM_A] = spm_dcm_peb(GCM, M, ['A'], nargout=2)
 save('../analyses/PEB_A.mat', {'PEB_A': PEB_A, 'RCM_A': RCM_A})
 
 # Search-based analysis (A)

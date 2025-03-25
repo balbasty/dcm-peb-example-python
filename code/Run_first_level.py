@@ -1,6 +1,7 @@
 # ======================================================================
 import os
 import numpy as np
+from copy import deepcopy
 from spm import (
     Array, Cell, Struct, Runtime,
     spm_select, spm_dcm_specify, spm_dcm_load, spm_dcm_fit, spm_dcm_fmri_check
@@ -120,7 +121,6 @@ for subject in range(nsubjects):
 
 # Find all DCM files
 dcms = spm_select('FPListRec', os.path.join(this_dir, '..', 'GLM'), 'DCM_full.mat')
-dcms = dcms[:1]
 
 # Prepare output directory
 out_dir = os.path.join(this_dir, '..', 'analyses')
@@ -221,7 +221,7 @@ b_lr_fam_names = ['Both', 'Left', 'Right']
 # Load and unpack an example DCM
 GCM_full = load(os.path.join(out_dir, 'GCM_full.mat'))
 GCM_full = spm_dcm_load(GCM_full.GCM)
-DCM_template = GCM_full[0]
+DCM_template = GCM_full.reshape([-1])[0]
 a = DCM_template.a
 c = DCM_template.c
 d = DCM_template.d
@@ -240,7 +240,7 @@ for t in range(len(b_task_fam)):
 
             # Prepare B-matrix
             b = np.zeros([4, 4, 3])
-            b[:, :, 1:] = (b_dv_fam[dv][..., None] + b_lr_fam[lr][..., None] + b_task_fam[t]) > 0
+            b[:, :, 1:] = b_dv_fam[dv][..., None] * b_lr_fam[lr][..., None] * b_task_fam[t]
 
             # Prepare model name
             name = (
@@ -259,34 +259,41 @@ for t in range(len(b_task_fam)):
             GCM_templates[m] = DCM
 
             # Record the assignment of this model to each family
-            task_family[m] = t
-            b_dv_family[m] = dv
-            b_lr_family[m] = lr
+            # NOTE: These family indices will be used in SPM and
+            # must therefore use one-indexing.
+            task_family[m] = t + 1
+            b_dv_family[m] = dv + 1
+            b_lr_family[m] = lr + 1
             m += 1
 
 
 # Add a null model with no modulation
 # -------------------------------------------------------------------------
-b = np.zeros(4)
+b = np.zeros([4, 4, 2])
 c = num([[1, 0, 0],
          [1, 0, 0],
          [1, 0, 0],
          [1, 0, 0]])
 name = 'Task: None'
 
-DCM = Struct()
-DCM.b = np.zeros([4, 4, 3])
-DCM.b[:, :, 1] = b
-DCM.b[:, :, 2] = b
-DCM.c          = c
-DCM.name       = name
+# NOTE
+#   a structure is an array of dict, and in python, copies are shallow
+#   by default (which means that DCM and np.copy(DCM) and point to the
+#   same underlying dictionaries). We must use copy.deepcopy to perform
+#   a nested copy.
+DCM      = deepcopy(GCM_templates[-1])
+DCM.b    = b
+DCM.c    = c
+DCM.name = name
 
 GCM_templates[m] = DCM
 
 # Record the assignment of this model to each family
-b_dv_family[m] = len(b_dv_fam)
-b_lr_family[m] = len(b_lr_fam)
-task_family[m] = len(b_task_fam)
+# NOTE: These family indices will be used in SPM and
+# must therefore use one-indexing.
+b_dv_family[m] = len(b_dv_fam) + 1
+b_lr_family[m] = len(b_lr_fam) + 1
+task_family[m] = len(b_task_fam) + 1
 
 m += 1
 
