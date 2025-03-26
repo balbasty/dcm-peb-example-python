@@ -1,4 +1,5 @@
 *.asv
 DCM_*
 
+analyses
 .ipynb_checkpoints
