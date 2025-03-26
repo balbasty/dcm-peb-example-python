@@ -1,2 +1,4 @@
 *.asv
 DCM_*
+
+.ipynb_checkpoints
